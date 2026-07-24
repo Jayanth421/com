@@ -10,7 +10,6 @@ import {
   Bell,
   Send,
   Hash,
-  Slack,
   Globe,
   Users,
   BrainCircuit,
@@ -27,7 +26,6 @@ import {
   RotateCcw,
   MoreVertical,
   CheckCircle2,
-  AlertCircle,
   Zap,
   RefreshCw,
   Download,
@@ -119,7 +117,7 @@ function FieldLabel({ label, hint }: { label: string; hint?: string }) {
   return (
     <label className="mb-1 flex items-center gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
       {label}
-      {hint && <Info size={12} className="text-slate-400" title={hint} />}
+      {hint && <Info size={12} className="text-slate-400" aria-label={hint} />}
     </label>
   );
 }
@@ -1007,8 +1005,6 @@ const quickActions = [
 
 export default function CommunicationSettings() {
   const [activeSection, setActiveSection] = useState<Section>("general");
-
-  const activeLabel = navItems.find(n => n.id === activeSection)?.label ?? "Settings";
 
   return (
     <div className="flex min-h-screen flex-col gap-0">
