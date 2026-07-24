@@ -1,635 +1,652 @@
-import { motion } from "framer-motion";
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  Bell,
-  CheckCheck,
-  ChevronRight,
-  Circle,
-  Clock3,
-  Eye,
-  FileArchive,
-  FileImage,
-  FileText,
-  FileUp,
-  MessageSquareMore,
-  Paperclip,
-  Plus,
   Search,
-  ShieldCheck,
+  Plus,
+  Send,
+  Paperclip,
   Smile,
-  Sparkles,
-  Star,
-  Trash2,
-  UserRound,
+  Bell,
+  Mail,
+  MessageCircle,
+  Smartphone,
+  Calendar,
   Users,
-  Video,
+  GraduationCap,
+  UserSquare2,
+  Layers,
+  Clock3,
+  MoreVertical,
+  Check,
+  CheckCheck,
+  ChevronDown,
+  Hash,
+  BookOpen,
+  Building2,
+  X,
+  ArrowLeft,
+  Settings,
+  Info,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { ClayCard, SectionTitle } from "../../components/ui/erp-ui";
-import { communicationThreads, studentRecords } from "../../data/erpData";
 
-const recipientTypes = [
-  "Individual Student",
-  "Multiple Students",
-  "Class Representative (CR)",
-  "Multiple CRs",
-  "Faculty",
-  "Multiple Faculty",
-  "Class",
-  "Section",
-  "Department",
-  "Entire College",
-];
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-const filterChips = ["Department", "Academic Year", "Semester", "Section", "Subject", "Role", "Status"];
+type TargetType =
+  | "individual"
+  | "multiple"
+  | "rollNumbers"
+  | "class"
+  | "section"
+  | "department"
+  | "semester"
+  | "crs"
+  | "faculty";
 
-const templateLibrary = [
-  "Attendance Reminder",
-  "Assignment Reminder",
-  "Exam Notification",
-  "Campus Print Ready",
-  "Fee Reminder",
-  "Event Invitation",
-  "Holiday Notice",
-  "Emergency Alert",
-  "Placement Notification",
-  "Workshop Announcement",
-  "Academic Update",
-  "General Announcement",
-];
-
-const deliveryChannels = [
-  { label: "In-App Notification", status: "Ready" },
-  { label: "Email", status: "Queued" },
-  { label: "WhatsApp", status: "Live" },
-  { label: "Push Notification", status: "Ready" },
-  { label: "SMS", status: "Optional" },
-];
-
-const scheduleOptions = ["Send Now", "Daily Recurring", "Weekly", "Monthly", "Yearly"];
-
-const stats = [
-  { label: "Recipients Selected", value: "128", meta: "Live audience" },
-  { label: "Active Templates", value: "12", meta: "4 favorites" },
-  { label: "Delivery Health", value: "94%", meta: "+6.1%" },
-  { label: "Pending Queue", value: "08", meta: "2 Retry" },
-];
-
-const previewTimeline = [
-  { time: "09:40 AM", text: "CSE Section A notification delivered" },
-  { time: "08:55 AM", text: "Attendance reminder opened by 93% of recipients" },
-  { time: "Yesterday", text: "Campus print update posted to faculty group" },
-];
-
-type AttachmentItem = {
-  id: number;
+interface Conversation {
+  id: string;
   name: string;
-  size: string;
-  kind: string;
-};
+  avatar: string;
+  avatarColor: string;
+  lastMessage: string;
+  time: string;
+  unread: number;
+  type: "students" | "crs" | "faculty" | "groups";
+  meta: string;
+  online?: boolean;
+}
 
-export default function MessagesManagement() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedRecipientType, setSelectedRecipientType] = useState("Multiple Students");
-  const [selectedTemplate, setSelectedTemplate] = useState("Attendance Reminder");
-  const [messageTitle, setMessageTitle] = useState("Semester Attendance Sync");
-  const [subject, setSubject] = useState("Academic Reminder");
-  const [messageBody, setMessageBody] = useState(
-    "Dear students, attendance compliance for the current week has been finalized. Please review the updated attendance summary and confirm any discrepancies before 5 PM today.",
+interface ChatMessage {
+  id: string;
+  sender: string;
+  role: "admin" | "crs" | "student" | "faculty";
+  text: string;
+  time: string;
+  type?: "message" | "announcement";
+  likes?: number;
+  reads?: number;
+}
+
+// ─── Static Data ─────────────────────────────────────────────────────────────
+
+const conversations: Conversation[] = [
+  { id: "1", name: "Computer Science - 2A", avatar: "CS", avatarColor: "bg-indigo-500", lastMessage: "Tomorrow is the last date to submit…", time: "10:48 AM", unread: 3, type: "students", meta: "68 Students", online: true },
+  { id: "2", name: "Dr. Priya Sharma", avatar: "PS", avatarColor: "bg-purple-500", lastMessage: "Please review the updated syllabus.", time: "08:31 AM", unread: 1, type: "faculty", meta: "CSE Faculty", online: true },
+  { id: "3", name: "Mechanical - 1B", avatar: "ME", avatarColor: "bg-orange-500", lastMessage: "Lab session rescheduled to Friday.", time: "Yesterday", unread: 0, type: "students", meta: "54 Students" },
+  { id: "4", name: "Aarav Sharma", avatar: "AS", avatarColor: "bg-teal-500", lastMessage: "Thank you sir!", time: "Yesterday", unread: 0, type: "crs", meta: "CR • CSE 2A", online: true },
+  { id: "5", name: "CRS Team", avatar: "CR", avatarColor: "bg-cyan-500", lastMessage: "Meeting @ 3 PM in Seminar Hall", time: "Tue", unread: 2, type: "crs", meta: "12 Members" },
+  { id: "6", name: "Dr. Rahul Verma", avatar: "RV", avatarColor: "bg-green-500", lastMessage: "Exam papers are ready.", time: "Mon", unread: 0, type: "faculty", meta: "MECH Faculty" },
+  { id: "7", name: "ECE Dept - Sem 4", avatar: "EC", avatarColor: "bg-pink-500", lastMessage: "New assignment uploaded.", time: "Mon", unread: 5, type: "students", meta: "92 Students" },
+  { id: "8", name: "Placement Cell", avatar: "PC", avatarColor: "bg-amber-500", lastMessage: "Drive scheduled for Nov 12.", time: "Sun", unread: 0, type: "groups", meta: "Group" },
+];
+
+const chatMessages: ChatMessage[] = [
+  { id: "1", sender: "Admin", role: "admin", text: "Important Announcement\n\nReminder: Tomorrow is the last date to submit the Data Structures assignment. Make sure to upload it on the portal before 11:59 PM.", time: "10:48 AM", type: "announcement", likes: 11, reads: 68 },
+  { id: "2", sender: "Aarav Sharma", role: "crs", text: "Also, don't forget about the lab session tomorrow. Please come prepared.", time: "10:51 AM", likes: 4, reads: 60 },
+  { id: "3", sender: "Admin", role: "admin", text: "Thank you for the reminder!", time: "10:53 AM", reads: 68 },
+];
+
+const targetOptions: { type: TargetType; label: string; icon: React.ReactNode; description: string; color: string }[] = [
+  { type: "individual", label: "Individual Student", icon: <GraduationCap size={20} />, description: "Search by name or roll number", color: "bg-indigo-50 text-indigo-600" },
+  { type: "multiple", label: "Multiple Students", icon: <Users size={20} />, description: "Select multiple students", color: "bg-purple-50 text-purple-600" },
+  { type: "rollNumbers", label: "By Roll Numbers", icon: <Hash size={20} />, description: "Enter comma-separated roll numbers", color: "bg-blue-50 text-blue-600" },
+  { type: "class", label: "Entire Class", icon: <BookOpen size={20} />, description: "Broadcast to a full class", color: "bg-cyan-50 text-cyan-600" },
+  { type: "section", label: "Section", icon: <Layers size={20} />, description: "Message a specific section", color: "bg-teal-50 text-teal-600" },
+  { type: "department", label: "Department", icon: <Building2 size={20} />, description: "All students in a department", color: "bg-green-50 text-green-600" },
+  { type: "semester", label: "Semester", icon: <Calendar size={20} />, description: "All students in a semester", color: "bg-yellow-50 text-yellow-600" },
+  { type: "crs", label: "CRS / Faculty", icon: <UserSquare2 size={20} />, description: "Class representatives & faculty", color: "bg-orange-50 text-orange-600" },
+  { type: "faculty", label: "Faculty", icon: <Users size={20} />, description: "All or specific faculty members", color: "bg-red-50 text-red-600" },
+];
+
+const tabFilters = ["All Messages", "Email", "WhatsApp", "In-App", "Notification Settings"] as const;
+type TabFilter = typeof tabFilters[number];
+
+const convoTabs = ["Students", "CRS / Faculty", "Groups"] as const;
+type ConvoTab = typeof convoTabs[number];
+
+// ─── Avatar ───────────────────────────────────────────────────────────────────
+
+function Avatar({ initials, color, size = "md", online }: { initials: string; color: string; size?: "sm" | "md" | "lg"; online?: boolean }) {
+  const sz = size === "sm" ? "h-8 w-8 text-xs" : size === "lg" ? "h-12 w-12 text-base" : "h-10 w-10 text-sm";
+  return (
+    <div className="relative flex-shrink-0">
+      <div className={`${sz} ${color} flex items-center justify-center rounded-2xl font-bold text-white`}>{initials}</div>
+      {online && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-400" />}
+    </div>
   );
-  const [priority, setPriority] = useState("Important");
-  const [scheduleMode, setScheduleMode] = useState("Send Now");
-  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([
-    "CS-2025-014",
-    "EC-2025-027",
-    "ME-2024-103",
-    "CS-2026-041",
-  ]);
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([
-    { id: 1, name: "Attendance_Summary.pdf", size: "2.4 MB", kind: "PDF" },
-    { id: 2, name: "Schedule_Overview.png", size: "480 KB", kind: "Image" },
-  ]);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+}
 
-  const filteredRecipients = useMemo(() => {
-    return studentRecords.filter((record) => {
-      const haystack = [
-        record.name,
-        record.rollNumber,
-        record.email,
-        record.phone,
-        record.department,
-        record.year,
-        record.section,
-        record.className,
-      ]
-        .join(" ")
-        .toLowerCase();
+// ─── Stat Cards ───────────────────────────────────────────────────────────────
 
-      return haystack.includes(searchTerm.toLowerCase());
-    });
-  }, [searchTerm]);
+const msgStats = [
+  { label: "Messages Sent", value: "1,482", delta: "+124 this week", icon: <Send size={18} />, gradient: "from-indigo-500 to-indigo-400" },
+  { label: "Delivered", value: "1,390", delta: "93.8% delivery rate", icon: <CheckCheck size={18} />, gradient: "from-emerald-500 to-teal-400" },
+  { label: "Scheduled", value: "18", delta: "Next: 2:30 PM today", icon: <Calendar size={18} />, gradient: "from-amber-500 to-yellow-400" },
+  { label: "Failed", value: "06", delta: "Retry available", icon: <Clock3 size={18} />, gradient: "from-rose-500 to-pink-400" },
+];
 
-  const selectedRecipientDetails = useMemo(() => {
-    return studentRecords.filter((record) => selectedRecipients.includes(record.rollNumber));
-  }, [selectedRecipients]);
+// ─── Recent Notifications Strip ───────────────────────────────────────────────
 
-  const toggleRecipient = (rollNumber: string) => {
-    setSelectedRecipients((current) =>
-      current.includes(rollNumber)
-        ? current.filter((item) => item !== rollNumber)
-        : [...current, rollNumber],
-    );
-  };
+const recentNotifs = [
+  { label: "WhatsApp Message", sub: "To All Students", time: "5m 28s ago", color: "bg-green-100 text-green-700", status: "Delivered" },
+  { label: "In-App Notification", sub: "To All Students", time: "5m 28s ago", color: "bg-indigo-100 text-indigo-700", status: "Received" },
+  { label: "Email", sub: "To CSE Final Year", time: "5m 28s ago", color: "bg-blue-100 text-blue-700", status: "Opened" },
+  { label: "Announcement", sub: "Department-wide", time: "5m 28s ago", color: "bg-amber-100 text-amber-700", status: "Posted" },
+];
 
-  const selectAll = () => {
-    setSelectedRecipients(filteredRecipients.map((record) => record.rollNumber));
-  };
+// ─── Compose Panel ────────────────────────────────────────────────────────────
 
-  const clearSelections = () => {
-    setSelectedRecipients([]);
-  };
+function ComposePanel({ onClose }: { onClose?: () => void }) {
+  const [selectedTarget, setSelectedTarget] = useState<TargetType | null>(null);
+  const [showTargetPicker, setShowTargetPicker] = useState(false);
+  const [rollInput, setRollInput] = useState("");
+  const [department, setDepartment] = useState("");
+  const [semester, setSemester] = useState("");
+  const [section, setSection] = useState("");
+  const [channels, setChannels] = useState({ inApp: true, email: true, whatsapp: false, sms: false });
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [subject, setSubject] = useState("");
+  const [messageText, setMessageText] = useState("");
 
-  const handleFiles = (fileList: FileList | null) => {
-    if (!fileList) return;
+  const toggleChannel = (key: keyof typeof channels) =>
+    setChannels((c) => ({ ...c, [key]: !c[key] }));
 
-    const nextFiles = Array.from(fileList).map((file, index) => ({
-      id: Date.now() + index,
-      name: file.name,
-      size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
-      kind: file.type.startsWith("image/") ? "Image" : file.type.includes("pdf") ? "PDF" : file.type.includes("zip") ? "ZIP" : file.type.includes("video/") ? "Video" : "Document",
-    }));
-
-    setAttachments((current) => [...current, ...nextFiles]);
-  };
-
-  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    handleFiles(event.target.files);
-    event.target.value = "";
-  };
-
-  const removeAttachment = (id: number) => {
-    setAttachments((current) => current.filter((item) => item.id !== id));
-  };
-
-  const activeTemplatePreview = `Template: ${selectedTemplate} • ${messageBody}`;
+  const selectedOpt = targetOptions.find((o) => o.type === selectedTarget);
 
   return (
-    <div className="min-h-[calc(100vh-5rem)] space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((item) => (
-          <ClayCard key={item.label} className="min-h-[118px]">
-            <p className="text-sm text-slate-500 dark:text-slate-400">{item.label}</p>
-            <h3 className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{item.value}</h3>
-            <p className="mt-1 text-xs font-semibold text-emerald-500">{item.meta}</p>
+    <div className="flex h-full flex-col rounded-[24px] border border-white/70 bg-white/85 shadow-[10px_10px_24px_rgba(15,23,42,0.08),-10px_-10px_24px_rgba(255,255,255,0.95)] dark:border-slate-800 dark:bg-slate-900/75">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="flex items-center gap-2">
+          {onClose && (
+            <button onClick={onClose} className="mr-1 rounded-xl p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <ArrowLeft size={16} />
+            </button>
+          )}
+          <h2 className="font-bold text-slate-900 dark:text-white">New Message</h2>
+        </div>
+        <span className="text-xs text-slate-400">←</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        {/* Send To */}
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">Send To</p>
+          <div className="grid grid-cols-2 gap-2">
+            {/* Students tile */}
+            <button
+              onClick={() => setShowTargetPicker(true)}
+              className={`group flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition ${
+                selectedTarget && ["individual","multiple","rollNumbers","class","section","department","semester"].includes(selectedTarget)
+                  ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 dark:border-slate-700"
+              }`}
+            >
+              <div className="rounded-xl bg-indigo-100 p-2.5 text-indigo-600"><GraduationCap size={20} /></div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Students</span>
+            </button>
+            {/* CRS/Faculty tile */}
+            <button
+              onClick={() => { setSelectedTarget("crs"); setShowTargetPicker(false); }}
+              className={`group flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition ${
+                selectedTarget === "crs" || selectedTarget === "faculty"
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-slate-200 hover:border-orange-300 hover:bg-orange-50 dark:border-slate-700"
+              }`}
+            >
+              <div className="rounded-xl bg-orange-100 p-2.5 text-orange-600"><UserSquare2 size={20} /></div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">CRS / Faculty</span>
+            </button>
+            {/* Groups tile */}
+            <button
+              className="group flex flex-col items-center gap-2 rounded-2xl border border-slate-200 p-4 text-center transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700"
+            >
+              <div className="rounded-xl bg-cyan-100 p-2.5 text-cyan-600"><Users size={20} /></div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Groups</span>
+            </button>
+            {/* Custom List tile */}
+            <button
+              className="group flex flex-col items-center gap-2 rounded-2xl border border-slate-200 p-4 text-center transition hover:border-purple-300 hover:bg-purple-50 dark:border-slate-700"
+            >
+              <div className="rounded-xl bg-purple-100 p-2.5 text-purple-600"><Layers size={20} /></div>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Custom List</span>
+            </button>
+          </div>
+
+          {/* Target Type Picker Dropdown */}
+          <AnimatePresence>
+            {showTargetPicker && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="mt-2 rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                  <p className="text-xs font-semibold text-slate-500">Select target group</p>
+                  <button onClick={() => setShowTargetPicker(false)} className="text-slate-400 hover:text-slate-700"><X size={14} /></button>
+                </div>
+                {targetOptions.filter(o => !["crs","faculty"].includes(o.type)).map((opt) => (
+                  <button
+                    key={opt.type}
+                    onClick={() => { setSelectedTarget(opt.type); setShowTargetPicker(false); }}
+                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800 ${selectedTarget === opt.type ? "bg-indigo-50 dark:bg-indigo-500/10" : ""}`}
+                  >
+                    <span className={`rounded-xl p-1.5 ${opt.color}`}>{opt.icon}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-white">{opt.label}</p>
+                      <p className="text-xs text-slate-400">{opt.description}</p>
+                    </div>
+                    {selectedTarget === opt.type && <Check size={14} className="ml-auto text-indigo-500" />}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Dynamic target input */}
+          {selectedTarget && !showTargetPicker && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 py-2">
+                <span className={`rounded-lg p-1 ${selectedOpt?.color}`}>{selectedOpt?.icon}</span>
+                <span className="flex-1 text-sm font-semibold text-indigo-700">{selectedOpt?.label}</span>
+                <button onClick={() => setSelectedTarget(null)} className="text-indigo-400 hover:text-indigo-700"><X size={14} /></button>
+              </div>
+
+              {selectedTarget === "rollNumbers" && (
+                <textarea
+                  value={rollInput}
+                  onChange={(e) => setRollInput(e.target.value)}
+                  placeholder="Enter roll numbers separated by commas e.g. CS-2025-001, CS-2025-002"
+                  rows={2}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              )}
+              {(selectedTarget === "individual" || selectedTarget === "multiple") && (
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    placeholder={selectedTarget === "individual" ? "Search student name or roll number…" : "Search and select multiple students…"}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-8 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  />
+                </div>
+              )}
+              {(selectedTarget === "class" || selectedTarget === "section" || selectedTarget === "department" || selectedTarget === "semester") && (
+                <div className="grid grid-cols-2 gap-2">
+                  {(selectedTarget === "department" || selectedTarget === "class" || selectedTarget === "section") && (
+                    <select value={department} onChange={e => setDepartment(e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                      <option value="">Department</option>
+                      {["CSE","ECE","MECH","CIVIL","MBA"].map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  )}
+                  {(selectedTarget === "class" || selectedTarget === "section" || selectedTarget === "semester") && (
+                    <select value={semester} onChange={e => setSemester(e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                      <option value="">Semester</option>
+                      {["1","2","3","4","5","6","7","8"].map(s => <option key={s} value={s}>Sem {s}</option>)}
+                    </select>
+                  )}
+                  {selectedTarget === "section" && (
+                    <select value={section} onChange={e => setSection(e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white col-span-2">
+                      <option value="">Section</option>
+                      {["A","B","C","D"].map(s => <option key={s} value={s}>Section {s}</option>)}
+                    </select>
+                  )}
+                </div>
+              )}
+              {(selectedTarget === "crs" || selectedTarget === "faculty") && (
+                <div className="grid grid-cols-2 gap-2">
+                  <select className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                    <option value="">All Departments</option>
+                    {["CSE","ECE","MECH","CIVIL"].map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <select className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                    <option value="">All Semesters</option>
+                    {["1","2","3","4","5","6","7","8"].map(s => <option key={s} value={s}>Sem {s}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Subject */}
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">Subject</p>
+          <input
+            value={subject}
+            onChange={e => setSubject(e.target.value)}
+            placeholder="Message subject…"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+          />
+        </div>
+
+        {/* Message */}
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">Message</p>
+          <textarea
+            value={messageText}
+            onChange={e => setMessageText(e.target.value)}
+            placeholder="Write your message or announcement…"
+            rows={3}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+          />
+        </div>
+
+        {/* Channels */}
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">Channels</p>
+          <div className="space-y-2">
+            {[
+              { key: "inApp" as const, icon: <Bell size={14} />, label: "In-App Notification", sub: "Send notification via app", color: "text-indigo-500" },
+              { key: "email" as const, icon: <Mail size={14} />, label: "Email", sub: "Send email to recipients", color: "text-blue-500" },
+              { key: "whatsapp" as const, icon: <MessageCircle size={14} />, label: "WhatsApp", sub: "Send WhatsApp message", color: "text-green-500" },
+              { key: "sms" as const, icon: <Smartphone size={14} />, label: "SMS", sub: "Send SMS to gateway", color: "text-orange-500" },
+            ].map(({ key, icon, label, sub, color }) => (
+              <label key={key} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 transition ${channels[key] ? "border-indigo-200 bg-indigo-50/60 dark:border-indigo-500/30 dark:bg-indigo-500/10" : "border-slate-200 dark:border-slate-700"}`}>
+                <input type="checkbox" checked={channels[key]} onChange={() => toggleChannel(key)} className="accent-indigo-600 h-4 w-4 rounded" />
+                <span className={color}>{icon}</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-white">{label}</p>
+                  <p className="text-xs text-slate-400">{sub}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Schedule */}
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">Schedule <span className="normal-case font-normal text-slate-400">(optional)</span></p>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+            <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+        <button className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 py-3 text-sm font-bold text-white shadow-md shadow-indigo-500/20 transition hover:from-indigo-700 hover:to-indigo-600">
+          Review & Send →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Chat Panel ───────────────────────────────────────────────────────────────
+
+function ChatPanel({ convo }: { convo: Conversation }) {
+  const [input, setInput] = useState("");
+  const [msgType, setMsgType] = useState<"Message" | "Announcement">("Message");
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, []);
+
+  return (
+    <div className="flex h-full flex-col rounded-[24px] border border-white/70 bg-white/85 shadow-[10px_10px_24px_rgba(15,23,42,0.08),-10px_-10px_24px_rgba(255,255,255,0.95)] dark:border-slate-800 dark:bg-slate-900/75">
+      {/* Chat Header */}
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="flex items-center gap-3">
+          <Avatar initials={convo.avatar} color={convo.avatarColor} online={convo.online} />
+          <div>
+            <div className="flex items-center gap-1.5">
+              <h2 className="font-bold text-slate-900 dark:text-white">{convo.name}</h2>
+              {convo.type === "students" && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">Class</span>}
+            </div>
+            <p className="text-xs text-slate-400">{convo.meta} • {convo.online ? <span className="text-emerald-500">Online</span> : "Offline"}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><Search size={16} /></button>
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><Info size={16} /></button>
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><MoreVertical size={16} /></button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        {chatMessages.map((msg) => {
+          const isAdmin = msg.role === "admin";
+          return (
+            <div key={msg.id} className={`flex gap-3 ${isAdmin ? "flex-row" : "flex-row"}`}>
+              <Avatar
+                initials={isAdmin ? "AD" : msg.role === "crs" ? "CR" : msg.sender.slice(0,2).toUpperCase()}
+                color={isAdmin ? "bg-indigo-500" : msg.role === "crs" ? "bg-teal-500" : "bg-slate-400"}
+                size="sm"
+              />
+              <div className="max-w-[75%]">
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-white">{msg.sender}</span>
+                  {msg.type === "announcement" && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-600">Announcement</span>}
+                  <span className="text-[11px] text-slate-400">{msg.time}</span>
+                </div>
+                <div className={`rounded-2xl px-4 py-3 text-sm ${isAdmin ? "rounded-tl-sm bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100" : "rounded-tl-sm bg-white border border-slate-200 text-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"}`}>
+                  {msg.text.split("\n\n").map((para, i) => (
+                    <p key={i} className={i === 0 && msg.type === "announcement" ? "font-bold" : ""}>{para}</p>
+                  ))}
+                </div>
+                {(msg.likes !== undefined || msg.reads !== undefined) && (
+                  <div className="mt-1 flex gap-3 text-[11px] text-slate-400">
+                    {msg.likes !== undefined && <span>👍 {msg.likes}</span>}
+                    {msg.reads !== undefined && <span>👁 {msg.reads}</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+        {/* Type Toggle */}
+        <div className="mb-2 flex gap-1">
+          {(["Message","Announcement"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setMsgType(t)}
+              className={`rounded-xl px-3 py-1 text-xs font-semibold transition ${msgType === t ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400"}`}
+            >{t}</button>
+          ))}
+        </div>
+        <div className="flex items-end gap-2">
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><Paperclip size={18} /></button>
+          <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><Smile size={18} /></button>
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="Type your message…"
+            rows={1}
+            className="flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); setInput(""); } }}
+          />
+          <button className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 hover:bg-indigo-700">
+            Send <ChevronDown size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Conversation List ────────────────────────────────────────────────────────
+
+function ConversationList({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [convoTab, setConvoTab] = useState<ConvoTab>("Students");
+
+  const tabMap: Record<ConvoTab, Conversation["type"][]> = {
+    "Students": ["students"],
+    "CRS / Faculty": ["crs", "faculty"],
+    "Groups": ["groups"],
+  };
+
+  const filtered = conversations.filter(c => {
+    const matchType = tabMap[convoTab].includes(c.type);
+    const matchQuery = c.name.toLowerCase().includes(query.toLowerCase()) || c.lastMessage.toLowerCase().includes(query.toLowerCase());
+    return matchType && matchQuery;
+  });
+
+  return (
+    <div className="flex h-full flex-col rounded-[24px] border border-white/70 bg-white/85 shadow-[10px_10px_24px_rgba(15,23,42,0.08),-10px_-10px_24px_rgba(255,255,255,0.95)] dark:border-slate-800 dark:bg-slate-900/75">
+      {/* Header */}
+      <div className="border-b border-slate-100 px-4 pt-4 dark:border-slate-800">
+        <h3 className="mb-3 font-bold text-slate-900 dark:text-white">Conversations</h3>
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search conversations…"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+          />
+        </div>
+        {/* Tabs */}
+        <div className="flex gap-1 pb-3 overflow-x-auto">
+          {convoTabs.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setConvoTab(tab)}
+              className={`whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold transition ${convoTab === tab ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+            >{tab}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+        {filtered.length === 0 && (
+          <p className="py-8 text-center text-sm text-slate-400">No conversations found</p>
+        )}
+        {filtered.map(c => (
+          <button
+            key={c.id}
+            onClick={() => onSelect(c.id)}
+            className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${selected === c.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}
+          >
+            <Avatar initials={c.avatar} color={c.avatarColor} size="sm" online={c.online} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{c.name}</p>
+                <span className="flex-shrink-0 text-[11px] text-slate-400">{c.time}</span>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-slate-400">{c.lastMessage}</p>
+            </div>
+            {c.unread > 0 && (
+              <span className="mt-0.5 flex-shrink-0 rounded-full bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{c.unread}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length > 5 && (
+        <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+          <button className="text-xs font-semibold text-indigo-500 hover:underline">Load more →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function MessagesPage() {
+  const [activeTab, setActiveTab] = useState<TabFilter>("All Messages");
+  const [selectedConvo, setSelectedConvo] = useState("1");
+  const [showCompose, setShowCompose] = useState(true);
+
+  const convo = conversations.find(c => c.id === selectedConvo) ?? conversations[0];
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="mb-0.5 text-xs font-semibold uppercase tracking-widest text-indigo-500">Communication</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Messaging & Notifications</h1>
+          <p className="mt-0.5 text-sm text-slate-500">Send announcements, notifications and messages to students and CRS.</p>
+        </div>
+        <button
+          onClick={() => setShowCompose(true)}
+          className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-700"
+        >
+          <Plus size={16} /> New Message
+        </button>
+      </div>
+
+      {/* Tab Bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        {tabFilters.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex items-center gap-1.5 rounded-2xl px-4 py-2 text-sm font-semibold transition ${activeTab === tab ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20" : "bg-white text-slate-500 shadow hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800"}`}
+          >
+            {tab === "Email" && <Mail size={13} />}
+            {tab === "WhatsApp" && <MessageCircle size={13} />}
+            {tab === "In-App" && <Bell size={13} />}
+            {tab === "Notification Settings" && <Settings size={13} />}
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {msgStats.map(s => (
+          <ClayCard key={s.label} className="flex items-center gap-4">
+            <div className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${s.gradient} text-white shadow-lg`}>{s.icon}</div>
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{s.label}</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">{s.value}</p>
+              <p className="text-[11px] text-emerald-500">{s.delta}</p>
+            </div>
           </ClayCard>
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 rounded-[26px] border border-white/70 bg-white/85 p-4 shadow-[10px_10px_24px_rgba(15,23,42,0.08),-10px_-10px_24px_rgba(255,255,255,0.95)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-[10px_10px_30px_rgba(2,6,23,0.6),-10px_-10px_24px_rgba(30,41,59,0.35)] xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold dark:bg-slate-800">ClassCom</span>
-          <ChevronRight size={14} />
-          <span>College ERP</span>
-          <ChevronRight size={14} />
-          <span className="font-semibold text-slate-900 dark:text-white">Send Message</span>
+      {/* Main Layout */}
+      <div className="grid gap-5 xl:grid-cols-[300px_1fr_340px]">
+        {/* Conversation List */}
+        <div style={{ height: "600px" }}>
+          <ConversationList selected={selectedConvo} onSelect={setSelectedConvo} />
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative min-w-[230px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search by name, roll number, email..."
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-white"
-            />
-          </div>
-          <button className="rounded-2xl bg-slate-100 p-2.5 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-            <Bell size={16} />
-          </button>
-          <div className="flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 dark:bg-slate-800">
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-400 text-xs font-semibold text-white">CA</div>
-            <div className="text-sm">
-              <p className="font-semibold text-slate-900 dark:text-white">Class Admin</p>
-              <p className="text-[11px] text-slate-500">Admin Access</p>
-            </div>
-          </div>
-          <button className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Dark / Light</button>
-          <button className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white">
-            <Plus size={16} /> New Message
-          </button>
+        {/* Chat */}
+        <div style={{ height: "600px" }}>
+          <ChatPanel convo={convo} />
+        </div>
+
+        {/* Compose */}
+        <div style={{ height: "600px" }}>
+          <ComposePanel />
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-        <ClayCard className="h-full">
-          <SectionTitle eyebrow="Recipient Selection" title="Audience Studio" description="Filter recipients by role, department, class, or section." />
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Recipient Type</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {recipientTypes.map((item) => (
-                <button
-                  key={item}
-                  onClick={() => setSelectedRecipientType(item)}
-                  className={`rounded-2xl px-2 py-2 text-xs font-semibold transition ${selectedRecipientType === item ? "bg-indigo-600 text-white" : "bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Advanced Filters</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {filterChips.map((chip) => (
-                <span key={chip} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-                  {chip}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <button onClick={selectAll} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Select All</button>
-            <button onClick={clearSelections} className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Clear</button>
-          </div>
-
-          <div className="mt-4 max-h-[540px] space-y-2 overflow-y-auto pr-1">
-            {filteredRecipients.map((record) => {
-              const selected = selectedRecipients.includes(record.rollNumber);
-              return (
-                <motion.button
-                  key={record.rollNumber}
-                  whileHover={{ y: -2 }}
-                  onClick={() => toggleRecipient(record.rollNumber)}
-                  className={`flex w-full items-start gap-3 rounded-[22px] border p-3 text-left transition ${selected ? "border-indigo-500 bg-indigo-50/70 dark:border-indigo-500 dark:bg-indigo-500/10" : "border-transparent bg-slate-50/80 dark:bg-slate-800/60"}`}
-                >
-                  <div className="relative grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 text-sm font-bold text-white">
-                    {record.name.charAt(0)}
-                    <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${record.status === "Active" ? "bg-emerald-500" : "bg-slate-300"}`} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate font-semibold text-slate-900 dark:text-white">{record.name}</p>
-                      <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${record.status === "Active" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300" : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"}`}>{record.status}</span>
-                    </div>
-                    <p className="mt-0.5 text-xs text-slate-500">{record.rollNumber} • {record.department}</p>
-                    <p className="mt-1 text-xs font-medium text-indigo-600 dark:text-indigo-300">{record.className} • Section {record.section}</p>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{record.crAssigned ? "CR" : "Student"}</span>
-                      <span className="text-xs text-slate-500">{record.activity}</span>
-                    </div>
-                  </div>
-                  <input type="checkbox" checked={selected} readOnly className="mt-1 h-4 w-4 rounded accent-indigo-600" />
-                </motion.button>
-              );
-            })}
-          </div>
-        </ClayCard>
-
-        <ClayCard className="h-full">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-4 dark:border-slate-800">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-indigo-500">Composer</p>
-              <h3 className="mt-1 text-2xl font-semibold text-slate-900 dark:text-white">Send Message</h3>
-            </div>
-            <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">Draft Saved</div>
-          </div>
-
-          <div className="mt-4 grid gap-4 2xl:grid-cols-[1.08fr_0.92fr]">
-            <div className="space-y-4">
-              <div className="rounded-[24px] bg-slate-50 p-4 dark:bg-slate-800/60">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Message Title</label>
-                    <input
-                      value={messageTitle}
-                      onChange={(event) => setMessageTitle(event.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Subject</label>
-                    <input
-                      value={subject}
-                      onChange={(event) => setSubject(event.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Rich Text Message Editor</label>
-                  <textarea
-                    value={messageBody}
-                    onChange={(event) => setMessageBody(event.target.value)}
-                    rows={7}
-                    className="w-full rounded-[22px] border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                  />
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="rounded-2xl bg-slate-100 p-2 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Smile size={16} /></button>
-                    <button className="rounded-2xl bg-slate-100 p-2 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><Sparkles size={16} /></button>
-                    <button className="rounded-2xl bg-slate-100 p-2 text-slate-700 dark:bg-slate-800 dark:text-slate-200"><MessageSquareMore size={16} /></button>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Priority</label>
-                    <select value={priority} onChange={(event) => setPriority(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
-                      <option>Normal</option>
-                      <option>Important</option>
-                      <option>Urgent</option>
-                      <option>Emergency</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Scheduling</label>
-                    <select value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
-                      {scheduleOptions.map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+      {/* Recent Notifications Strip */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <SectionTitle eyebrow="Activity" title="Recent Notifications" />
+          <button className="text-xs font-semibold text-indigo-500 hover:underline">View all</button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {recentNotifs.map((n, i) => (
+            <ClayCard key={i} className="flex items-center gap-3">
+              <div className={`rounded-2xl px-2.5 py-1.5 text-xs font-bold ${n.color}`}>{n.label.split(" ")[0]}</div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{n.label}</p>
+                <p className="truncate text-xs text-slate-400">{n.sub}</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">{n.time}</p>
               </div>
-
-              <div className="rounded-[24px] bg-slate-50 p-4 dark:bg-slate-800/60">
-                <div className="flex items-center justify-between gap-3">
-                  <SectionTitle eyebrow="Attachments" title="Upload Assets" description="Images, pdf, docs, videos, audio, and archives." />
-                  <button onClick={() => fileInputRef.current?.click()} className="rounded-2xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white">
-                    <div className="flex items-center gap-2">
-                      <FileUp size={14} /> Add Files
-                    </div>
-                  </button>
-                </div>
-
-                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileChange} />
-
-                <div
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    setIsDragging(false);
-                    handleFiles(event.dataTransfer.files);
-                  }}
-                  className={`mt-4 rounded-[22px] border border-dashed p-4 text-center text-sm ${isDragging ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10" : "border-slate-300 dark:border-slate-700"}`}
-                >
-                  Drag and drop files here or click Add Files.
-                </div>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {attachments.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-[20px] bg-white p-3 dark:bg-slate-950">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {item.kind === "PDF" ? <FileText size={16} className="text-rose-500" /> : item.kind === "Image" ? <FileImage size={16} className="text-cyan-500" /> : item.kind === "Video" ? <Video size={16} className="text-violet-500" /> : item.kind === "ZIP" ? <FileArchive size={16} className="text-amber-500" /> : <Paperclip size={16} className="text-slate-500" />}
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{item.name}</p>
-                          <p className="text-[11px] text-slate-500">{item.size} • {item.kind}</p>
-                        </div>
-                      </div>
-                      <button onClick={() => removeAttachment(item.id)} className="rounded-xl bg-slate-100 p-2 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-[24px] bg-slate-50 p-4 dark:bg-slate-800/60">
-                <SectionTitle eyebrow="Delivery Channels" title="Send Through" description="Push to every channel simultaneously." />
-                <div className="mt-3 space-y-2">
-                  {deliveryChannels.map((channel) => (
-                    <div key={channel.label} className="flex items-center justify-between rounded-[18px] bg-white px-3 py-2 dark:bg-slate-950">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
-                        <Circle size={12} className="text-emerald-500" />
-                        {channel.label}
-                      </div>
-                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">{channel.status}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[24px] bg-slate-50 p-4 dark:bg-slate-800/60">
-                <SectionTitle eyebrow="Message Templates" title="Reusable Stacks" description="Save, favorite, edit, duplicate, and delete templates." />
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {templateLibrary.map((template) => (
-                    <button
-                      key={template}
-                      onClick={() => setSelectedTemplate(template)}
-                      className={`rounded-2xl px-3 py-2 text-xs font-semibold ${selectedTemplate === template ? "bg-indigo-600 text-white" : "bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}
-                    >
-                      {template}
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-3 rounded-[18px] bg-white p-3 text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-300">
-                  <p className="font-semibold text-slate-900 dark:text-white">Template Preview</p>
-                  <p className="mt-1">{activeTemplatePreview}</p>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Save</button>
-                  <button className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Edit</button>
-                  <button className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Duplicate</button>
-                  <button className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Favorite</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button className="rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-500 px-4 py-2 text-sm font-semibold text-white">Send Message</button>
-            <button className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Save as Draft</button>
-            <button className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Schedule</button>
-            <button className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Preview</button>
-            <button className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Clear Form</button>
-          </div>
-        </ClayCard>
-
-        <ClayCard className="h-full">
-          <SectionTitle eyebrow="Preview & Tracking" title="Broadcast Summary" description="Recipient count, timing, visibility, and delivery state." />
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Recipient Count</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{selectedRecipientDetails.length}</p>
-            </div>
-            <div className="rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Priority</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{priority}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Recipient List</p>
-            <div className="mt-3 space-y-2">
-              {selectedRecipientDetails.map((recipient) => (
-                <div key={recipient.rollNumber} className="rounded-[18px] bg-white p-3 dark:bg-slate-950">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-900 dark:text-white">{recipient.name}</p>
-                      <p className="text-xs text-slate-500">{recipient.rollNumber} • {recipient.department}</p>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{recipient.section}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Summary</p>
-            <div className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-200">
-              <div className="flex items-center justify-between"><span>Subject</span><span className="font-semibold text-slate-900 dark:text-white">{subject}</span></div>
-              <div className="flex items-center justify-between"><span>Schedule</span><span className="font-semibold text-slate-900 dark:text-white">{scheduleMode}</span></div>
-              <div className="flex items-center justify-between"><span>Channels</span><span className="font-semibold text-slate-900 dark:text-white">5 Active</span></div>
-              <div className="flex items-center justify-between"><span>Attachments</span><span className="font-semibold text-slate-900 dark:text-white">{attachments.length}</span></div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Message Preview</p>
-            <div className="mt-3 rounded-[18px] bg-white p-3 text-sm text-slate-700 dark:bg-slate-950 dark:text-slate-200">{messageBody}</div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Delivery Tracking</p>
-            <div className="mt-3 space-y-2">
-              {[
-                { label: "Sending Progress", value: "72%", icon: <Clock3 size={14} /> },
-                { label: "Delivered", value: "84", icon: <CheckCheck size={14} /> },
-                { label: "Failed", value: "3", icon: <Trash2 size={14} /> },
-                { label: "Pending", value: "11", icon: <Clock3 size={14} /> },
-                { label: "Read", value: "68", icon: <Eye size={14} /> },
-                { label: "Unread", value: "16", icon: <Bell size={14} /> },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded-[18px] bg-white px-3 py-2 text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-200">
-                  <div className="flex items-center gap-2 font-semibold">{item.icon} {item.label}</div>
-                  <span className="font-semibold text-slate-900 dark:text-white">{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-[22px] bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Activity Timeline</p>
-            <div className="mt-3 space-y-2">
-              {previewTimeline.map((item) => (
-                <div key={item.time} className="rounded-[18px] bg-white p-3 dark:bg-slate-950">
-                  <p className="text-[11px] font-semibold text-indigo-500">{item.time}</p>
-                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{item.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </ClayCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-        <ClayCard>
-          <SectionTitle eyebrow="Analytics" title="Campaign Metrics" description="Daily and weekly communication performance." />
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={communicationThreads.map((item) => ({ audience: item.audience, readRate: Number(item.readRate.replace("%", "")) }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.35} />
-                  <XAxis dataKey="audience" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="readRate" fill="#4F46E5" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={communicationThreads.map((_item, index) => ({ name: `T${index + 1}`, messages: 70 + index * 8 }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.35} />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="messages" stroke="#06B6D4" strokeWidth={3} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </ClayCard>
-
-        <ClayCard>
-          <SectionTitle eyebrow="Security" title="Role-Based Access" description="Admin, faculty, and CR moderation controls." />
-          <div className="mt-4 space-y-3">
-            {[
-              { label: "Admin can message everyone", icon: <ShieldCheck size={16} /> },
-              { label: "Faculty can message assigned students", icon: <Users size={16} /> },
-              { label: "CR can message their assigned class", icon: <UserRound size={16} /> },
-              { label: "Students only receive messages unless replies are enabled", icon: <MessageSquareMore size={16} /> },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between rounded-[20px] bg-slate-50 p-3 dark:bg-slate-800/60">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">{item.icon} {item.label}</div>
-                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">Protected</span>
-              </div>
-            ))}
-          </div>
-        </ClayCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <ClayCard>
-          <SectionTitle eyebrow="Templates" title="Favorites" description="Pinned templates for quick sends." />
-          <div className="mt-4 space-y-2">
-            {templateLibrary.slice(0, 3).map((item) => (
-              <div key={item} className="flex items-center justify-between rounded-[18px] bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
-                <span className="font-semibold text-slate-900 dark:text-white">{item}</span>
-                <Star size={14} className="text-amber-500" />
-              </div>
-            ))}
-          </div>
-        </ClayCard>
-
-        <ClayCard>
-          <SectionTitle eyebrow="History" title="Delivery Logs" description="Recent message outcomes and retry actions." />
-          <div className="mt-4 space-y-2">
-            {communicationThreads.map((thread) => (
-              <div key={thread.audience} className="rounded-[20px] bg-slate-50 p-3 dark:bg-slate-800/60">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold text-slate-900 dark:text-white">{thread.audience}</p>
-                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">{thread.status}</span>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">{thread.delivery}</p>
-              </div>
-            ))}
-          </div>
-        </ClayCard>
-
-        <ClayCard>
-          <SectionTitle eyebrow="Actions" title="Quick Controls" description="Manage draft, preview, schedule, and retry queue." />
-          <div className="mt-4 grid gap-2">
-            <button className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Retry Failed Messages</button>
-            <button className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Export Delivery Report</button>
-            <button className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Open Audit Trail</button>
-            <button className="rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-500 px-3 py-2 text-sm font-semibold text-white">Dispatch Now</button>
-          </div>
-        </ClayCard>
+              <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${n.color}`}>{n.status}</span>
+            </ClayCard>
+          ))}
+        </div>
       </div>
     </div>
   );
