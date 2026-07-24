@@ -17,7 +17,7 @@ import {
   UserCircleIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
-import { UsersIcon } from "lucide-react";
+import { Settings2Icon, UsersIcon } from "lucide-react";
 
 type NavItem = {
   name: string;
@@ -62,7 +62,6 @@ const navItems: NavItem[] = [
     icon: <MailIcon />,
     subItems: [
       { name: "Messages", path: "/messages", pro: false },
-      { name: "Settings", path: "/communication-settings", pro: false },
     ],
   },
   {
@@ -93,10 +92,19 @@ const navItems: NavItem[] = [
     subItems: [{ name: "Campus Print", path: "/campus-print", pro: false }],
   },
   {
+    name: "Settings",
+    icon: <Settings2Icon />,
+    subItems: [
+      
+      { name: "Settings", path: "/communication-settings", pro: false },
+    ],
+  },
+  {
     icon: <UserCircleIcon />,
     name: "Profile",
     path: "/profile",
   },
+
 ];
 
 
