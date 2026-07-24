@@ -14,6 +14,7 @@ import CRManagement from "./pages/CollegeERP/CRManagement";
 import MessagesManagement from "./pages/CollegeERP/MessagesManagement";
 import ResourceManagement from "./pages/CollegeERP/ResourceManagement";
 import ComingSoonPage from "./pages/CollegeERP/ComingSoonPage";
+import CommunicationSettings from "./pages/CollegeERP/CommunicationSettings";
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/campus-print" element={<CampusPrint />} />
             <Route path="/cr-management" element={<CRManagement />} />
             <Route path="/messages" element={<MessagesManagement />} />
+            <Route path="/communication-settings" element={<CommunicationSettings />} />
             <Route path="/resources" element={<ResourceManagement />} />
             <Route path="/coming-soon/:module" element={<ComingSoonPage />} />
 

@@ -60,7 +60,10 @@ const navItems: NavItem[] = [
   {
     name: "Messages",
     icon: <MailIcon />,
-    subItems: [{ name: "Messages", path: "/messages", pro: false }],
+    subItems: [
+      { name: "Messages", path: "/messages", pro: false },
+      { name: "Settings", path: "/communication-settings", pro: false },
+    ],
   },
   {
     name: "Resources",
