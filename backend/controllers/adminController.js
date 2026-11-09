@@ -21,6 +21,7 @@ const ApiError = require("../utils/apiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { isValidEmail, normalizeEmail, validateEmailByRole } = require("../utils/emailRules");
 const { sendMail } = require("../services/mailerService");
+const { createPresignedDownloadUrl } = require("../services/storageService");
 
 function handleDuplicateKeyError(error, entityName) {
   if (error?.code === 11000) {
@@ -1522,6 +1523,8 @@ const getUploadsAdmin = asyncHandler(async (req, res) => {
       status: item.status,
       category: item.category || "STUDENT_PRESENTATION",
       fileUrl: item.fileUrl,
+      fileName: item.fileName || null,
+      fileType: item.fileType || null,
       createdAt: item.createdAt
     }))
   });
@@ -1852,7 +1855,7 @@ const downloadUploadsZipBySection = asyncHandler(async (req, res) => {
     category: String(category || "STUDENT_PRESENTATION").toUpperCase()
   })
     .populate({ path: "uploadedBy", select: "name rollNumber email" })
-    .select("subjectId fileUrl fileName fileType createdAt")
+    .select("subjectId s3Key fileUrl fileName fileType createdAt")
     .lean()
     .exec();
 
@@ -1887,7 +1890,7 @@ const downloadUploadsZipBySection = asyncHandler(async (req, res) => {
   for (const upload of uploads) {
     const subject = subjectById.get(String(upload.subjectId));
     const classDoc = subject ? classById.get(String(subject.classId)) : null;
-    if (!subject || !classDoc || !upload.fileUrl) continue;
+    if (!subject || !classDoc) continue;
 
     const studentLabel =
       upload.uploadedBy?.rollNumber ||
@@ -1895,17 +1898,32 @@ const downloadUploadsZipBySection = asyncHandler(async (req, res) => {
       upload.uploadedBy?.email ||
       "student";
     const originalName = upload.fileName || `presentation-${String(upload._id)}.pptx`;
-    const fileName = `${sanitizeZipFileName(studentLabel)}_${sanitizeZipFileName(originalName)}`;
+    const subjectLabel = subject.code || subject.name || "Subject";
+    const fileName = [
+      sanitizeZipFileName(studentLabel),
+      sanitizeZipFileName(subjectLabel),
+      sanitizeZipFileName(originalName)
+    ].join(" ");
     const filePath = [
       sanitizePathSegment(`${classDoc.year}Year`, "Year"),
       sanitizePathSegment(classDoc.departmentId?.code || classDoc.departmentId?.name || "Department"),
       sanitizePathSegment(classDoc.section || "Section"),
-      sanitizePathSegment(subject.code || subject.name || "Subject"),
+      sanitizePathSegment([subject.code, subject.name].filter(Boolean).join(" - "), "Subject"),
       fileName
     ].join("/");
 
     try {
-      const response = await fetch(upload.fileUrl);
+      let downloadUrl = upload.fileUrl;
+      if (upload.s3Key) {
+        downloadUrl = await createPresignedDownloadUrl({
+          key: upload.s3Key,
+          expiresIn: 7200,
+          origin: `${req.protocol}://${req.get("host")}`
+        });
+      }
+      if (!downloadUrl) throw new Error("file_url_missing");
+
+      const response = await fetch(downloadUrl);
       if (!response.ok) throw new Error(`HTTP_${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
       archive.append(Buffer.from(arrayBuffer), { name: filePath });
@@ -1919,6 +1937,247 @@ const downloadUploadsZipBySection = asyncHandler(async (req, res) => {
   }
 
   archive.finalize();
+});
+
+const downloadUploadStatusReport = asyncHandler(async (req, res) => {
+  const { year = "", departmentId = "", departmentCode = "", section = "", classId = "", subjectId = "" } = req.query;
+  const classFilter = {};
+  if (year !== "") classFilter.year = normalizeYearValue(year);
+  if (section) classFilter.section = String(section).trim().toUpperCase();
+  if (classId) {
+    if (!Types.ObjectId.isValid(classId)) throw new ApiError(400, "classId is invalid");
+    classFilter._id = classId;
+  }
+  if (departmentId) {
+    if (!Types.ObjectId.isValid(departmentId)) throw new ApiError(400, "departmentId is invalid");
+    classFilter.departmentId = departmentId;
+  }
+  if (departmentCode) {
+    const department = await Department.findOne({ code: String(departmentCode).trim().toUpperCase() })
+      .select("_id")
+      .lean()
+      .exec();
+    if (!department?._id) throw new ApiError(404, "Department not found for departmentCode");
+    classFilter.departmentId = department._id;
+  }
+
+  const classDocs = await Class.find(classFilter)
+    .populate({ path: "departmentId", select: "name code" })
+    .sort({ year: 1, section: 1, name: 1 })
+    .lean()
+    .exec();
+  if (!classDocs.length) throw new ApiError(404, "No classes found for the selected filters");
+
+  const classIds = classDocs.map((item) => item._id);
+  const subjectFilter = { classId: { $in: classIds } };
+  if (subjectId) {
+    if (!Types.ObjectId.isValid(subjectId)) throw new ApiError(400, "subjectId is invalid");
+    subjectFilter._id = subjectId;
+  }
+  const subjectDocs = await Subject.find(subjectFilter)
+    .select("_id classId name code")
+    .sort({ code: 1, name: 1 })
+    .lean()
+    .exec();
+  if (!subjectDocs.length) throw new ApiError(404, "No subjects found for selected filters");
+
+  // Older student accounts may not have classId saved yet. Match those records using
+  // the same department/year/section data used by the student portal.
+  const classIdsSet = new Set(classIds.map((item) => String(item)));
+  const classIdByLegacyFields = new Map(
+    classDocs.map((item) => [
+      `${String(item.departmentId?.code || "").toUpperCase()}:${item.year}:${String(item.section || "").toUpperCase()}`,
+      String(item._id)
+    ])
+  );
+  const studentRows = await User.find({ role: ROLES.STUDENT })
+    .select("_id classId name email rollNumber branch year section")
+    .sort({ rollNumber: 1, name: 1 })
+    .lean()
+    .exec();
+  const students = studentRows
+    .map((student) => {
+      const resolvedClassId = student.classId
+        ? String(student.classId)
+        : classIdByLegacyFields.get(
+            `${String(student.branch || "").toUpperCase()}:${student.year || ""}:${String(student.section || "").toUpperCase()}`
+          );
+      return { ...student, reportClassId: resolvedClassId || null };
+    })
+    .filter((student) => student.reportClassId && classIdsSet.has(student.reportClassId));
+  const studentIds = students.map((item) => item._id);
+  const subjectIds = subjectDocs.map((item) => item._id);
+  const uploads = studentIds.length
+    ? await Upload.find({
+        subjectId: { $in: subjectIds },
+        uploadedBy: { $in: studentIds },
+        category: "STUDENT_PRESENTATION"
+      })
+        .select("subjectId uploadedBy status fileName createdAt")
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec()
+    : [];
+
+  const studentsByClass = new Map();
+  students.forEach((student) => {
+    const key = student.reportClassId;
+    studentsByClass.set(key, [...(studentsByClass.get(key) || []), student]);
+  });
+  const latestUploadByStudentAndSubject = new Map();
+  const submissionsByStudentAndSubject = new Map();
+  uploads.forEach((upload) => {
+    const key = `${String(upload.subjectId)}:${String(upload.uploadedBy)}`;
+    submissionsByStudentAndSubject.set(key, (submissionsByStudentAndSubject.get(key) || 0) + 1);
+    if (!latestUploadByStudentAndSubject.has(key)) latestUploadByStudentAndSubject.set(key, upload);
+  });
+
+  const classById = new Map(classDocs.map((item) => [String(item._id), item]));
+  const subjectsByClass = new Map();
+  subjectDocs.forEach((subject) => {
+    const key = String(subject.classId);
+    subjectsByClass.set(key, [...(subjectsByClass.get(key) || []), subject]);
+  });
+  const formatSubjectLabel = (subject) =>
+    [subject.code, subject.name].filter(Boolean).join(" - ");
+
+  const studentSummaryRows = students.map((student) => {
+    const classDoc = classById.get(student.reportClassId);
+    const studentSubjects = subjectsByClass.get(student.reportClassId) || [];
+    const studentUploads = studentSubjects
+      .map((subject) => latestUploadByStudentAndSubject.get(`${String(subject._id)}:${String(student._id)}`))
+      .filter(Boolean);
+    const uploadedSubjects = studentUploads.length;
+    const totalSubjects = studentSubjects.length;
+    const notUploadedSubjects = Math.max(totalSubjects - uploadedSubjects, 0);
+    const uploadedSubjectNames = studentSubjects
+      .filter((subject) =>
+        latestUploadByStudentAndSubject.has(`${String(subject._id)}:${String(student._id)}`)
+      )
+      .map(formatSubjectLabel)
+      .join(", ");
+    const notUploadedSubjectNames = studentSubjects
+      .filter(
+        (subject) =>
+          !latestUploadByStudentAndSubject.has(`${String(subject._id)}:${String(student._id)}`)
+      )
+      .map(formatSubjectLabel)
+      .join(", ");
+    const latestUploadDate = studentUploads
+      .map((upload) => upload.createdAt)
+      .filter(Boolean)
+      .sort((a, b) => new Date(b) - new Date(a))[0];
+    const overallStatus =
+      uploadedSubjects === 0
+        ? "NOT UPLOADED"
+        : notUploadedSubjects === 0
+          ? "ALL UPLOADED"
+          : "PARTIALLY UPLOADED";
+
+    return {
+      ClassName: classDoc?.name || "",
+      Year: classDoc?.year || "",
+      Department: classDoc?.departmentId?.code || classDoc?.departmentId?.name || "",
+      Section: classDoc?.section || "",
+      RollNumber: student.rollNumber || "",
+      StudentName: student.name || "",
+      Email: student.email || "",
+      TotalSubjects: totalSubjects,
+      UploadedSubjects: uploadedSubjects,
+      NotUploadedSubjects: notUploadedSubjects,
+      UploadedSubjectNames: uploadedSubjectNames,
+      NotUploadedSubjectNames: notUploadedSubjectNames,
+      OverallStatus: overallStatus,
+      LatestUploadDate: latestUploadDate ? new Date(latestUploadDate).toISOString() : ""
+    };
+  });
+  const summaryRows = [];
+  const detailRows = [];
+  let totalExpected = 0;
+  let totalUploaded = 0;
+
+  subjectDocs.forEach((subject) => {
+    const classDoc = classById.get(String(subject.classId));
+    const classStudents = studentsByClass.get(String(subject.classId)) || [];
+    let uploadedCount = 0;
+    let approvedCount = 0;
+    let pendingReviewCount = 0;
+    let rejectedCount = 0;
+
+    classStudents.forEach((student) => {
+      const key = `${String(subject._id)}:${String(student._id)}`;
+      const latestUpload = latestUploadByStudentAndSubject.get(key);
+      const status = latestUpload?.status || "NOT UPLOADED";
+      if (latestUpload) uploadedCount += 1;
+      if (status === "APPROVED") approvedCount += 1;
+      if (status === "REJECTED") rejectedCount += 1;
+      if (latestUpload && ["PENDING", "UPLOADED"].includes(status)) pendingReviewCount += 1;
+      detailRows.push({
+        Year: classDoc?.year || "",
+        Department: classDoc?.departmentId?.code || classDoc?.departmentId?.name || "",
+        Section: classDoc?.section || "",
+        ClassName: classDoc?.name || "",
+        SubjectCode: subject.code || "",
+        Subject: subject.name || "",
+        RollNumber: student.rollNumber || "",
+        StudentName: student.name || "",
+        Email: student.email || "",
+        ClassStudentCount: classStudents.length,
+        UploadStatus: status,
+        UploadDate: latestUpload?.createdAt ? new Date(latestUpload.createdAt).toISOString() : "",
+        FileName: latestUpload?.fileName || "",
+        SubmissionCount: submissionsByStudentAndSubject.get(key) || 0
+      });
+    });
+
+    const expected = classStudents.length;
+    const notUploaded = expected - uploadedCount;
+    totalExpected += expected;
+    totalUploaded += uploadedCount;
+    summaryRows.push({
+      Year: classDoc?.year || "",
+      Department: classDoc?.departmentId?.code || classDoc?.departmentId?.name || "",
+      Section: classDoc?.section || "",
+      ClassName: classDoc?.name || "",
+      SubjectCode: subject.code || "",
+      Subject: subject.name || "",
+      StudentCount: expected,
+      UploadedStudents: uploadedCount,
+      NotUploadedStudents: notUploaded,
+      UploadRate: expected ? `${((uploadedCount / expected) * 100).toFixed(1)}%` : "0.0%",
+      AwaitingReview: pendingReviewCount,
+      Approved: approvedCount,
+      Rejected: rejectedCount
+    });
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const overviewSheet = XLSX.utils.json_to_sheet([
+    { Metric: "Report generated", Value: new Date().toISOString() },
+    { Metric: "Classes included", Value: classDocs.length },
+    { Metric: "Subjects included", Value: subjectDocs.length },
+    { Metric: "Expected submissions", Value: totalExpected },
+    { Metric: "Uploaded", Value: totalUploaded },
+    { Metric: "Not uploaded", Value: totalExpected - totalUploaded },
+    { Metric: "Overall upload rate", Value: totalExpected ? `${((totalUploaded / totalExpected) * 100).toFixed(1)}%` : "0.0%" }
+  ]);
+  const studentSummarySheet = XLSX.utils.json_to_sheet(studentSummaryRows);
+  const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+  const detailSheet = XLSX.utils.json_to_sheet(detailRows);
+  overviewSheet["!cols"] = [{ wch: 24 }, { wch: 26 }];
+  studentSummarySheet["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 28 }, { wch: 32 }, { wch: 15 }, { wch: 18 }, { wch: 21 }, { wch: 42 }, { wch: 42 }, { wch: 20 }, { wch: 24 }];
+  summarySheet["!cols"] = [{ wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 22 }, { wch: 14 }, { wch: 30 }, { wch: 15 }, { wch: 18 }, { wch: 21 }, { wch: 13 }, { wch: 16 }, { wch: 12 }, { wch: 12 }];
+  detailSheet["!cols"] = [{ wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 22 }, { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 28 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 24 }, { wch: 36 }, { wch: 16 }];
+  // Put the person-wise report first so Excel opens on the upload/non-upload list.
+  XLSX.utils.book_append_sheet(workbook, studentSummarySheet, "Student Summary");
+  XLSX.utils.book_append_sheet(workbook, detailSheet, "Student Status");
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Subject Summary");
+  XLSX.utils.book_append_sheet(workbook, overviewSheet, "Overview");
+
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename=\"upload-status-report-${new Date().toISOString().slice(0, 10)}.xlsx\"`);
+  res.status(200).send(buffer);
 });
 
 const getMailSettings = asyncHandler(async (req, res) => {
@@ -2291,6 +2550,7 @@ module.exports = {
   deleteSubject,
   deleteUserByAdmin,
   downloadAcademicTemplate,
+  downloadUploadStatusReport,
   downloadUploadsZipBySection,
   downloadUsersTemplate,
   getClasses,

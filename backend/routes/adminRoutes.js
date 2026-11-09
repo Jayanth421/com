@@ -17,6 +17,7 @@ const {
   deleteSubject,
   deleteUserByAdmin,
   downloadAcademicTemplate,
+  downloadUploadStatusReport,
   downloadUploadsZipBySection,
   downloadUsersTemplate,
   getClasses,
@@ -76,6 +77,7 @@ router.get("/classes", getClasses);
 router.get("/subjects", getSubjects);
 router.get("/uploads", getUploadsAdmin);
 router.get("/downloads/uploads-zip", downloadUploadsZipBySection);
+router.get("/reports/upload-status", downloadUploadStatusReport);
 router.get("/templates/academic", downloadAcademicTemplate);
 router.get("/templates/users", downloadUsersTemplate);
 router.get("/settings/mail", getMailSettings);

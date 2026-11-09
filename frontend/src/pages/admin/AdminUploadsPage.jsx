@@ -26,6 +26,8 @@ export default function AdminUploadsPage() {
     subjectId: ""
   });
   const [zipDownloading, setZipDownloading] = useState(false);
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [downloadingFileId, setDownloadingFileId] = useState("");
 
   useEffect(() => {
     async function loadUploads() {
@@ -103,7 +105,8 @@ export default function AdminUploadsPage() {
 
       const response = await api.get("/admin/downloads/uploads-zip", {
         params,
-        responseType: "blob"
+        responseType: "blob",
+        timeout: 0
       });
       const disposition = String(response.headers?.["content-disposition"] || "");
       const fileNameMatch = disposition.match(/filename="?([^"]+)"?/i);
@@ -117,9 +120,71 @@ export default function AdminUploadsPage() {
       anchor.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || "Failed to download zip");
+      const responseData = requestError?.response?.data;
+      let message = responseData?.message;
+      if (responseData instanceof Blob) {
+        const responseText = await responseData.text();
+        try {
+          message = JSON.parse(responseText)?.message;
+        } catch {
+          message = responseText;
+        }
+      }
+      setError(message || requestError?.message || "Failed to download zip");
     } finally {
       setZipDownloading(false);
+    }
+  };
+
+  const handleDownloadUploadStatusReport = async () => {
+    setReportDownloading(true);
+    setError("");
+    try {
+      const params = {};
+      if (zipFilters.departmentId) params.departmentId = zipFilters.departmentId;
+      if (zipFilters.year) params.year = zipFilters.year;
+      if (zipFilters.section) params.section = zipFilters.section;
+      if (zipFilters.classId) params.classId = zipFilters.classId;
+      if (zipFilters.subjectId) params.subjectId = zipFilters.subjectId;
+      const response = await api.get("/admin/reports/upload-status", { params, responseType: "blob" });
+      const disposition = String(response.headers?.["content-disposition"] || "");
+      const fileName = disposition.match(/filename=\"?([^\"]+)\"?/i)?.[1] || "upload-status-report.xlsx";
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || "Failed to download upload status report");
+    } finally {
+      setReportDownloading(false);
+    }
+  };
+
+  const handleDownloadFile = async (item) => {
+    setDownloadingFileId(item.id);
+    setError("");
+    try {
+      const response = await api.get("/storage/file-url", { params: { uploadId: item.id } });
+      const fileUrl = response.data?.url;
+      if (!fileUrl) throw new Error("Download URL is unavailable");
+      const fileResponse = await fetch(fileUrl);
+      if (!fileResponse.ok) throw new Error("Unable to download file");
+      const blobUrl = window.URL.createObjectURL(await fileResponse.blob());
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = response.data?.fileName || item.fileName || "presentation-file";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || requestError.message || "Failed to download file");
+    } finally {
+      setDownloadingFileId("");
     }
   };
 
@@ -127,9 +192,9 @@ export default function AdminUploadsPage() {
     <section className="space-y-5">
       <GlassCard>
         <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <h4 className="font-display text-base text-white">Section-wise ZIP Download</h4>
+          <h4 className="font-display text-base text-white">Class Files & Upload Status Report</h4>
           <p className="mt-1 text-xs text-soft">
-            Download PPT files using folder structure: Year/Department/Section/Subject.
+            Download individual files, a ZIP of submitted class files, or an Excel report of uploaded and missing submissions.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-5">
             <select
@@ -227,7 +292,7 @@ export default function AdminUploadsPage() {
             </select>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={handleDownloadSectionZip}
@@ -235,6 +300,14 @@ export default function AdminUploadsPage() {
               disabled={zipDownloading}
             >
               {zipDownloading ? "Preparing ZIP..." : "Download ZIP"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadUploadStatusReport}
+              className="rounded-xl border border-brand-300/50 bg-brand-500/15 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-500/25 disabled:opacity-70"
+              disabled={reportDownloading}
+            >
+              {reportDownloading ? "Preparing Excel..." : "Download Excel Status"}
             </button>
           </div>
         </div>
@@ -314,17 +387,10 @@ export default function AdminUploadsPage() {
                             <button
                               className="rounded-lg bg-white/15 px-3 py-1 text-xs text-white hover:bg-white/25"
                               type="button"
-                              onClick={async () => {
-                                try {
-                                  const resp = await api.get('/storage/file-url', { params: { uploadId: item.id } });
-                                  const url = resp.data?.url;
-                                  if (url) window.open(url, '_blank');
-                                } catch (err) {
-                                  setError(err?.response?.data?.message || 'Failed to get download URL');
-                                }
-                              }}
+                              onClick={() => handleDownloadFile(item)}
+                              disabled={downloadingFileId === item.id}
                             >
-                              Download
+                              {downloadingFileId === item.id ? "Downloading..." : "Download file"}
                             </button>
                             <button
                               type="button"
